@@ -35,6 +35,7 @@ validator = { version = "0.18" }
 uuid = { version = "1.6.0", features = ["v4"] }
 include_dir = "0.7"
 dotenv = "0.15.0"
+anyhow = "1.0.93"
 
 [[bin]]
 name = "haams_store_dev-cli"
