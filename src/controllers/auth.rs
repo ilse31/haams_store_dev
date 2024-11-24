@@ -1,16 +1,15 @@
+use axum::debug_handler;
+use loco_rs::prelude::*;
+use serde::{Deserialize, Serialize};
+
 use crate::{
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
         users::{LoginParams, RegisterParams},
     },
-    response::Response,
     views::auth::{CurrentResponse, LoginResponse},
 };
-use axum::debug_handler;
-use loco_rs::prelude::*;
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct VerifyParams {
     pub token: String,
@@ -33,7 +32,7 @@ pub struct ResetParams {
 async fn register(
     State(ctx): State<AppContext>,
     Json(params): Json<RegisterParams>,
-) -> Result<Json<Response<()>>> {
+) -> Result<Response> {
     let res = users::Model::create_with_password(&ctx.db, &params).await;
 
     let user = match res {
@@ -44,12 +43,7 @@ async fn register(
                 user_email = &params.email,
                 "could not register user",
             );
-            return Ok(Json(Response {
-                success: false,
-                message: "Failed to register user".to_string(),
-                status_code: 500,
-                data: None,
-            }));
+            return format::json(());
         }
     };
 
@@ -60,7 +54,7 @@ async fn register(
 
     AuthMailer::send_welcome(&ctx, &user).await?;
 
-    Ok(Json(Response::created((), "User registered successfully")))
+    format::json(())
 }
 
 /// Verify register user. if the user not verified his email, he can't login to
@@ -69,31 +63,18 @@ async fn register(
 async fn verify(
     State(ctx): State<AppContext>,
     Json(params): Json<VerifyParams>,
-) -> Result<Json<Response<()>>> {
-    let Ok(user) = users::Model::find_by_verification_token(&ctx.db, &params.token).await else {
-        return Ok(Json(Response {
-            success: false,
-            message: "Invalid verification token".to_string(),
-            status_code: 400,
-            data: None,
-        }));
-    };
+) -> Result<Response> {
+    let user = users::Model::find_by_verification_token(&ctx.db, &params.token).await?;
 
     if user.email_verified_at.is_some() {
         tracing::info!(pid = user.pid.to_string(), "user already verified");
-        return Ok(Json(Response {
-            success: false,
-            message: "User already verified".to_string(),
-            status_code: 400,
-            data: None,
-        }));
+    } else {
+        let active_model = user.into_active_model();
+        let user = active_model.verified(&ctx.db).await?;
+        tracing::info!(pid = user.pid.to_string(), "user verified");
     }
 
-    let active_model = user.into_active_model();
-    let user = active_model.verified(&ctx.db).await?;
-    tracing::info!(pid = user.pid.to_string(), "user verified");
-
-    Ok(Json(Response::success((), "User verified successfully")))
+    format::json(())
 }
 
 /// In case the user forgot his password  this endpoints generate a forgot token
@@ -104,14 +85,11 @@ async fn verify(
 async fn forgot(
     State(ctx): State<AppContext>,
     Json(params): Json<ForgotParams>,
-) -> Result<Json<Response<()>>> {
+) -> Result<Response> {
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
-        return Ok(Json(Response::success(
-            (),
-            "Forgot password email sent successfully",
-        )));
+        return format::json(());
     };
 
     let user = user
@@ -121,84 +99,50 @@ async fn forgot(
 
     AuthMailer::forgot_password(&ctx, &user).await?;
 
-    Ok(Json(Response::success(
-        (),
-        "Forgot password email sent successfully",
-    )))
+    format::json(())
 }
 
 /// reset user password by the given parameters
 #[debug_handler]
-async fn reset(
-    State(ctx): State<AppContext>,
-    Json(params): Json<ResetParams>,
-) -> Result<Json<Response<()>>> {
+async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -> Result<Response> {
     let Ok(user) = users::Model::find_by_reset_token(&ctx.db, &params.token).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
         tracing::info!("reset token not found");
-        return Ok(Json(Response {
-            success: false,
-            message: "Invalid reset token".to_string(),
-            status_code: 400,
-            data: None,
-        }));
+
+        return format::json(());
     };
     user.into_active_model()
         .reset_password(&ctx.db, &params.password)
         .await?;
 
-    Ok(Json(Response::success((), "Password reset successfully")))
+    format::json(())
 }
 
 /// Creates a user login and returns a token
 #[debug_handler]
-async fn login(
-    State(ctx): State<AppContext>,
-    Json(params): Json<LoginParams>,
-) -> Result<Json<Response<LoginResponse>>> {
-    let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
-        return Ok(Json(Response {
-            success: false,
-            message: "User not found".to_string(),
-            status_code: 404,
-            data: None,
-        }));
-    };
+async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> {
+    let user = users::Model::find_by_email(&ctx.db, &params.email).await?;
 
     let valid = user.verify_password(&params.password);
 
     if !valid {
-        return Ok(Json(Response {
-            success: false,
-            message: "Invalid password".to_string(),
-            status_code: 401,
-            data: None,
-        }));
+        return unauthorized("unauthorized!");
     }
+
     let jwt_secret = ctx.config.get_jwt_config()?;
 
     let token = user
         .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
         .or_else(|_| unauthorized("unauthorized!"))?;
-    tracing::info!(pid = user.pid.to_string(), "user logged in");
 
-    Ok(Json(Response::success(
-        LoginResponse::new(&user, &token),
-        "User logged in successfully",
-    )))
+    format::json(LoginResponse::new(&user, &token))
 }
 
 #[debug_handler]
-async fn current(
-    auth: auth::JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Json<Response<CurrentResponse>>> {
+async fn current(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    Ok(Json(Response::success(
-        CurrentResponse::new(&user),
-        "User logged in successfully",
-    )))
+    format::json(CurrentResponse::new(&user))
 }
 
 pub fn routes() -> Routes {
