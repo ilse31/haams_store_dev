@@ -202,9 +202,15 @@ async fn login(
 }
 
 #[debug_handler]
-async fn current(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
+async fn current(
+    auth: auth::JWT,
+    State(ctx): State<AppContext>,
+) -> Result<Json<ApiResponse<CurrentResponse>>> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    format::json(CurrentResponse::new(&user))
+    Ok(Json(ApiResponse::success(
+        CurrentResponse::new(&user),
+        "User logged in successfully",
+    )))
 }
 
 pub fn routes() -> Routes {
