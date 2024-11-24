@@ -60,10 +60,7 @@ async fn register(
 
     AuthMailer::send_welcome(&ctx, &user).await?;
 
-    Ok(Json(Response::created(
-        (),
-        "User registered successfully",
-    )))
+    Ok(Json(Response::created((), "User registered successfully")))
 }
 
 /// Verify register user. if the user not verified his email, he can't login to
@@ -151,10 +148,7 @@ async fn reset(
         .reset_password(&ctx.db, &params.password)
         .await?;
 
-    Ok(Json(Response::success(
-        (),
-        "Password reset successfully",
-    )))
+    Ok(Json(Response::success((), "Password reset successfully")))
 }
 
 /// Creates a user login and returns a token
@@ -182,8 +176,11 @@ async fn login(
             data: None,
         }));
     }
+    let jwt_secret = ctx.config.get_jwt_config()?;
 
-    let token = auth::generate_token(&user)?;
+    let token = user
+        .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
+        .or_else(|_| unauthorized("unauthorized!"))?;
     tracing::info!(pid = user.pid.to_string(), "user logged in");
 
     Ok(Json(Response::success(
