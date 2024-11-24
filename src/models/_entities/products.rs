@@ -48,5 +48,3 @@ impl Related<variants::Entity> for Entity {
         Relation::Variant.def()
     }
 }
-
-impl ActiveModelBehavior for ActiveModel {}
