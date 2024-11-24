@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub enum ErrorCode {
+pub enum Code {
     // Auth related errors (1000-1999)
     InvalidCredentials = 1001,
     TokenExpired = 1002,

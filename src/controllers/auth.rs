@@ -4,7 +4,7 @@ use crate::{
         _entities::users,
         users::{LoginParams, RegisterParams},
     },
-    response::ApiResponse,
+    response::Response,
     views::auth::{CurrentResponse, LoginResponse},
 };
 use axum::debug_handler;
@@ -33,7 +33,7 @@ pub struct ResetParams {
 async fn register(
     State(ctx): State<AppContext>,
     Json(params): Json<RegisterParams>,
-) -> Result<Json<ApiResponse<()>>> {
+) -> Result<Json<Response<()>>> {
     let res = users::Model::create_with_password(&ctx.db, &params).await;
 
     let user = match res {
@@ -44,7 +44,7 @@ async fn register(
                 user_email = &params.email,
                 "could not register user",
             );
-            return Ok(Json(ApiResponse {
+            return Ok(Json(Response {
                 success: false,
                 message: "Failed to register user".to_string(),
                 status_code: 500,
@@ -60,7 +60,7 @@ async fn register(
 
     AuthMailer::send_welcome(&ctx, &user).await?;
 
-    Ok(Json(ApiResponse::created(
+    Ok(Json(Response::created(
         (),
         "User registered successfully",
     )))
@@ -72,34 +72,31 @@ async fn register(
 async fn verify(
     State(ctx): State<AppContext>,
     Json(params): Json<VerifyParams>,
-) -> Result<Json<ApiResponse<()>>> {
-    let user = match users::Model::find_by_verification_token(&ctx.db, &params.token).await {
-        Ok(user) => user,
-        Err(_) => {
-            return Ok(Json(ApiResponse {
-                success: false,
-                message: "Invalid verification token".to_string(),
-                status_code: 400,
-                data: None,
-            }));
-        }
+) -> Result<Json<Response<()>>> {
+    let Ok(user) = users::Model::find_by_verification_token(&ctx.db, &params.token).await else {
+        return Ok(Json(Response {
+            success: false,
+            message: "Invalid verification token".to_string(),
+            status_code: 400,
+            data: None,
+        }));
     };
 
     if user.email_verified_at.is_some() {
         tracing::info!(pid = user.pid.to_string(), "user already verified");
-        return Ok(Json(ApiResponse {
+        return Ok(Json(Response {
             success: false,
             message: "User already verified".to_string(),
             status_code: 400,
             data: None,
         }));
-    } else {
-        let active_model = user.into_active_model();
-        let user = active_model.verified(&ctx.db).await?;
-        tracing::info!(pid = user.pid.to_string(), "user verified");
     }
 
-    Ok(Json(ApiResponse::success((), "User verified successfully")))
+    let active_model = user.into_active_model();
+    let user = active_model.verified(&ctx.db).await?;
+    tracing::info!(pid = user.pid.to_string(), "user verified");
+
+    Ok(Json(Response::success((), "User verified successfully")))
 }
 
 /// In case the user forgot his password  this endpoints generate a forgot token
@@ -110,11 +107,11 @@ async fn verify(
 async fn forgot(
     State(ctx): State<AppContext>,
     Json(params): Json<ForgotParams>,
-) -> Result<Json<ApiResponse<()>>> {
+) -> Result<Json<Response<()>>> {
     let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
-        return Ok(Json(ApiResponse::success(
+        return Ok(Json(Response::success(
             (),
             "Forgot password email sent successfully",
         )));
@@ -127,7 +124,7 @@ async fn forgot(
 
     AuthMailer::forgot_password(&ctx, &user).await?;
 
-    Ok(Json(ApiResponse::success(
+    Ok(Json(Response::success(
         (),
         "Forgot password email sent successfully",
     )))
@@ -138,12 +135,12 @@ async fn forgot(
 async fn reset(
     State(ctx): State<AppContext>,
     Json(params): Json<ResetParams>,
-) -> Result<Json<ApiResponse<()>>> {
+) -> Result<Json<Response<()>>> {
     let Ok(user) = users::Model::find_by_reset_token(&ctx.db, &params.token).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
         tracing::info!("reset token not found");
-        return Ok(Json(ApiResponse {
+        return Ok(Json(Response {
             success: false,
             message: "Invalid reset token".to_string(),
             status_code: 400,
@@ -154,7 +151,7 @@ async fn reset(
         .reset_password(&ctx.db, &params.password)
         .await?;
 
-    Ok(Json(ApiResponse::success(
+    Ok(Json(Response::success(
         (),
         "Password reset successfully",
     )))
@@ -165,37 +162,31 @@ async fn reset(
 async fn login(
     State(ctx): State<AppContext>,
     Json(params): Json<LoginParams>,
-) -> Result<Json<ApiResponse<LoginResponse>>> {
-    let user = match users::Model::find_by_email(&ctx.db, &params.email).await {
-        Ok(user) => user,
-        Err(_) => {
-            return Ok(Json(ApiResponse {
-                success: false,
-                message: "User not found".to_string(),
-                status_code: 404,
-                data: None,
-            }));
-        }
+) -> Result<Json<Response<LoginResponse>>> {
+    let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
+        return Ok(Json(Response {
+            success: false,
+            message: "User not found".to_string(),
+            status_code: 404,
+            data: None,
+        }));
     };
 
     let valid = user.verify_password(&params.password);
 
     if !valid {
-        return Ok(Json(ApiResponse {
+        return Ok(Json(Response {
             success: false,
             message: "Invalid password".to_string(),
-            status_code: 400,
+            status_code: 401,
             data: None,
         }));
     }
 
-    let jwt_secret = ctx.config.get_jwt_config()?;
+    let token = auth::generate_token(&user)?;
+    tracing::info!(pid = user.pid.to_string(), "user logged in");
 
-    let token = user
-        .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
-        .or_else(|_| unauthorized("unauthorized!"))?;
-
-    Ok(Json(ApiResponse::success(
+    Ok(Json(Response::success(
         LoginResponse::new(&user, &token),
         "User logged in successfully",
     )))
@@ -205,9 +196,9 @@ async fn login(
 async fn current(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-) -> Result<Json<ApiResponse<CurrentResponse>>> {
+) -> Result<Json<Response<CurrentResponse>>> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    Ok(Json(ApiResponse::success(
+    Ok(Json(Response::success(
         CurrentResponse::new(&user),
         "User logged in successfully",
     )))
