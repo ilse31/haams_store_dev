@@ -1,5 +1,6 @@
-use sea_orm::entity::prelude::*;
 use super::_entities::products::{ActiveModel, Entity};
+use sea_orm::entity::prelude::*;
+
 pub type Products = Entity;
 
 #[async_trait::async_trait]

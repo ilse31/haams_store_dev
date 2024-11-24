@@ -1,5 +1,6 @@
-use sea_orm::entity::prelude::*;
 use super::_entities::variants::{ActiveModel, Entity};
+use sea_orm::entity::prelude::*;
+
 pub type Variants = Entity;
 
 #[async_trait::async_trait]
