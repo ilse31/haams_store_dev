@@ -11,13 +11,17 @@ pub async fn index(State(_ctx): State<AppContext>) -> Result<Response> {
     format::empty()
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub async fn get_all_products(
     State(_ctx): State<AppContext>,
+    params: axum::extract::Query<std::collections::HashMap<String, Option<u64>>>,
 ) -> Json<ResponseAPI<Vec<ProductResult>>> {
-    let products = match products::Model::get_all_products(&_ctx.db).await {
-        Ok(products) => Some(products), // Wrap in `Some`
+    let limit = params.get("limit").and_then(|v| v.clone()).unwrap_or(10);
+    let offset = params.get("offset").and_then(|v| v.clone()).unwrap_or(0);
+
+    let products = match products::Model::get_all_products(&_ctx.db, limit, offset).await {
+        Ok(products) => Some(products),
         Err(err) => {
-            // Handle the error
             tracing::error!("Error fetching products: {}", err);
             None
         }

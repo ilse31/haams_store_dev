@@ -1,5 +1,5 @@
-use super::_entities::products::{ActiveModel, Entity, Model};
-use sea_orm::entity::prelude::*;
+use super::_entities::products::{ActiveModel, Entity};
+use sea_orm::{entity::prelude::*, QuerySelect};
 use serde::{Deserialize, Serialize};
 
 pub type Products = Entity;
@@ -23,6 +23,7 @@ impl ActiveModelBehavior for ActiveModel {
 }
 
 //result Model custom for Product
+#[must_use]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProductResult {
     pub id: i32,
@@ -38,8 +39,10 @@ pub struct ProductResult {
 }
 
 impl super::_entities::products::Model {
-    pub fn to(self) -> super::products::Model {
-        super::products::Model {
+    #[allow(clippy::return_self_not_must_use)]
+    #[must_use]
+    pub fn to(self) -> Self {
+        Self {
             id: self.id,
             name: self.name,
             description: self.description,
@@ -53,6 +56,7 @@ impl super::_entities::products::Model {
         }
     }
 
+    #[must_use]
     pub fn from(self) -> super::products::ActiveModel {
         super::products::ActiveModel {
             id: sea_orm::ActiveValue::Set(self.id),
@@ -68,10 +72,31 @@ impl super::_entities::products::Model {
         }
     }
 
-    pub async fn get_all_products(db: &DatabaseConnection) -> Result<Vec<ProductResult>, DbErr> {
+    /// Retrieves all products with their associated categories and variants.
+    ///
+    /// # Arguments
+    /// * `db` - Database connection
+    /// * `limit` - Maximum number of products to return
+    /// * `offset` - Number of products to skip
+    ///
+    /// # Returns
+    /// A vector of `ProductResult` containing product details with category and variant names
+    ///
+    /// # Errors
+    /// Returns a `DbErr` if:
+    /// * Failed to fetch products from the database
+    /// * Failed to fetch related categories or variants
+    /// * Database connection error occurs
+    pub async fn get_all_products(
+        db: &DatabaseConnection,
+        limit: u64,
+        offset: u64,
+    ) -> Result<Vec<ProductResult>, DbErr> {
         // Fetch products with their related categories and variants
         let products_with_categories = Entity::find()
             .find_with_related(super::_entities::categories::Entity)
+            .limit(Some(limit))
+            .offset(Some(offset.checked_sub(1).unwrap_or(0)))
             .all(db)
             .await?;
 
@@ -91,8 +116,8 @@ impl super::_entities::products::Model {
                 price: product.price,
                 stock: product.stock,
                 img_url: product.img_url,
-                category_name: categories.get(0).and_then(|c| c.name.clone()), // Flatten Option
-                variant_name: variants.get(0).and_then(|v| v.name.clone()),    //
+                category_name: categories.first().and_then(|c| c.name.clone()),
+                variant_name: variants.first().and_then(|v| v.name.clone()),
                 created_at: product.created_at,
                 updated_at: product.updated_at,
             };
