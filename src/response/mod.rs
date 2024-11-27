@@ -2,4 +2,4 @@ mod error;
 mod success;
 
 pub use error::Code;
-pub use success::Response;
+pub use success::ResponseAPI;

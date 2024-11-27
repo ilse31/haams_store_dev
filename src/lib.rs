@@ -8,5 +8,4 @@ pub mod tasks;
 pub mod views;
 pub mod workers;
 
-pub use controllers::*;
 pub use models::*;

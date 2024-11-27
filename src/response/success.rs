@@ -1,14 +1,14 @@
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-pub struct Response<T> {
+pub struct ResponseAPI<T> {
     pub success: bool,
     pub message: String,
     pub status_code: u16,
     pub data: Option<T>,
 }
 
-impl<T> Response<T> {
+impl<T> ResponseAPI<T> {
     pub fn success(data: T, message: &str) -> Self {
         Self {
             success: true,
