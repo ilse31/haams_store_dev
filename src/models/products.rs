@@ -38,6 +38,12 @@ pub struct ProductResult {
     pub updated_at: DateTimeWithTimeZone,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProductsResponse {
+    pub products: Vec<ProductResult>,
+    pub total_count: u64,
+}
+
 impl super::_entities::products::Model {
     #[allow(clippy::return_self_not_must_use)]
     #[must_use]
@@ -91,7 +97,7 @@ impl super::_entities::products::Model {
         db: &DatabaseConnection,
         limit: u64,
         offset: u64,
-    ) -> Result<Vec<ProductResult>, DbErr> {
+    ) -> Result<ProductsResponse, DbErr> {
         // Fetch products with their related categories and variants
         let products_with_categories = Entity::find()
             .find_with_related(super::_entities::categories::Entity)
@@ -125,6 +131,53 @@ impl super::_entities::products::Model {
             product_results.push(product_result);
         }
 
-        Ok(product_results)
+        //total count
+        let total_count = Entity::find().count(db).await?;
+
+        if product_results.is_empty() {
+            return Err(DbErr::Custom("No products found".to_string()));
+        }
+
+        Ok(ProductsResponse {
+            products: product_results,
+            total_count,
+        })
+    }
+
+    pub async fn get_product_by_id(
+        db: &DatabaseConnection,
+        id: i32,
+    ) -> Result<ProductResult, DbErr> {
+        let product = Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::RecordNotFound(format!(
+                "Product with id {} not found",
+                id
+            )))?;
+
+        let categories = product
+            .find_related(super::_entities::categories::Entity)
+            .all(db)
+            .await?;
+
+        let variants = product
+            .find_related(super::_entities::variants::Entity)
+            .all(db)
+            .await?;
+
+        // Map product, category, and variant into ProductResult
+        Ok(ProductResult {
+            id: product.id,
+            name: product.name,
+            description: product.description,
+            price: product.price,
+            stock: product.stock,
+            img_url: product.img_url,
+            category_name: categories.first().and_then(|c| c.name.clone()),
+            variant_name: variants.first().and_then(|v| v.name.clone()),
+            created_at: product.created_at,
+            updated_at: product.updated_at,
+        })
     }
 }
