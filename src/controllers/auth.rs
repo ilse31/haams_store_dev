@@ -136,7 +136,13 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
         .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
         .or_else(|_| unauthorized("unauthorized!"))?;
 
-    format::json(LoginResponse::new(&user, &token))
+    let mut response = format::json(LoginResponse::new(&user, &token))?;
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        format!("token={}; HttpOnly; Path=/", token).parse().unwrap(),
+    );
+
+    Ok(response)
 }
 
 #[debug_handler]
