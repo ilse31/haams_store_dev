@@ -180,4 +180,18 @@ impl super::_entities::products::Model {
             updated_at: product.updated_at,
         })
     }
+
+    pub async fn delete_product_by_id(db: &DatabaseConnection, id: i32) -> Result<(), DbErr> {
+        let product = Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .ok_or(DbErr::RecordNotFound(format!(
+                "Product with id {} not found",
+                id
+            )))?;
+
+        product.delete(db).await?;
+
+        Ok(())
+    }
 }

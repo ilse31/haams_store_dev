@@ -85,10 +85,25 @@ pub async fn get_product_by_id(
     .into_response())
 }
 
+#[debug_handler]
+pub async fn delete_product_by_id(
+    State(_ctx): State<AppContext>,
+    Path(id): Path<u64>,
+) -> Result<Response> {
+    match products::Model::delete_product_by_id(&_ctx.db, id.try_into().unwrap()).await {
+        Ok(_) => Ok(Json(ResponseAPI::success((), "Product deleted successfully")).into_response()),
+        Err(err) => {
+            tracing::error!("Error deleting product: {}", err);
+            Ok(format::json(()).into_response())
+        }
+    }
+}
+
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("api/products/")
         .add("/", get(index))
         .add("/all", get(get_all_products))
         .add("/:id", get(get_product_by_id))
+        .add("/:id", delete(delete_product_by_id))
 }
