@@ -47,4 +47,13 @@ impl<T> ResponseAPI<T> {
             data: Some(data),
         }
     }
+
+    pub fn error(message: &str) -> Self {
+        Self {
+            success: false,
+            message: message.to_string(),
+            status_code: 500,
+            data: None,
+        }
+    }
 }

@@ -94,7 +94,7 @@ pub async fn delete_product_by_id(
         Ok(_) => Ok(Json(ResponseAPI::success((), "Product deleted successfully")).into_response()),
         Err(err) => {
             tracing::error!("Error deleting product: {}", err);
-            Ok(format::json(()).into_response())
+            Ok(Json(ResponseAPI::<()>::error(&err.to_string())).into_response())
         }
     }
 }
