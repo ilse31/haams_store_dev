@@ -20,8 +20,8 @@ pub async fn get_all_products(
     State(_ctx): State<AppContext>,
     params: axum::extract::Query<std::collections::HashMap<String, Option<u64>>>,
 ) -> Result<Response> {
-    let limit = params.get("limit").and_then(|v| v.clone()).unwrap_or(10);
-    let offset = params.get("offset").and_then(|v| v.clone()).unwrap_or(0);
+    let limit = params.get("limit").and_then(|v| *v).unwrap_or(10);
+    let offset = params.get("offset").and_then(|v| *v).unwrap_or(0);
 
     let products = match products::Model::get_all_products(&_ctx.db, limit, offset).await {
         Ok(products) => products,

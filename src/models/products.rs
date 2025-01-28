@@ -102,7 +102,7 @@ impl super::_entities::products::Model {
         let products_with_categories = Entity::find()
             .find_with_related(super::_entities::categories::Entity)
             .limit(Some(limit))
-            .offset(Some(offset.checked_sub(1).unwrap_or(0)))
+            .offset(Some(offset.saturating_sub(1)))
             .all(db)
             .await?;
 

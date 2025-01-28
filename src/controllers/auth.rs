@@ -8,6 +8,7 @@ use crate::{
         _entities::users,
         users::{LoginParams, RegisterParams},
     },
+    response::ResponseAPI,
     views::auth::{CurrentResponse, LoginResponse},
 };
 #[derive(Debug, Deserialize, Serialize)]
@@ -32,31 +33,62 @@ pub struct ResetParams {
 async fn register(
     State(ctx): State<AppContext>,
     Json(params): Json<RegisterParams>,
-) -> Result<Response> {
+) -> Result<Json<ResponseAPI<()>>, Json<ResponseAPI<()>>> {
+    // Attempt to create the user
     let res = users::Model::create_with_password(&ctx.db, &params).await;
 
     let user = match res {
         Ok(user) => user,
         Err(err) => {
-            tracing::info!(
+            // Log the error
+            tracing::error!(
                 message = err.to_string(),
                 user_email = &params.email,
                 "could not register user",
             );
-            return format::json(());
+
+            // Return a structured error response
+            return Err(Json(ResponseAPI::error(&format!(
+                "Could not register user: {}",
+                err
+            ))));
         }
     };
 
+    // Set email verification status
     let user = user
         .into_active_model()
         .set_email_verification_sent(&ctx.db)
-        .await?;
+        .await
+        .map_err(|err| {
+            tracing::error!(
+                message = err.to_string(),
+                user_email = &params.email,
+                "failed to set email verification status",
+            );
 
-    AuthMailer::send_welcome(&ctx, &user).await?;
+            Json(ResponseAPI::error(
+                "Failed to set email verification status",
+            ))
+        })?;
 
-    format::json(())
+    // Send welcome email
+    AuthMailer::send_welcome(&ctx, &user).await.map_err(|err| {
+        tracing::error!(
+            message = err.to_string(),
+            user_email = &params.email,
+            "failed to send welcome email",
+        );
+
+        Json(ResponseAPI::error("Failed to send welcome email"))
+    })?;
+
+    // Return a structured success response
+    Ok(Json(ResponseAPI::created(
+        (),
+        "User registered successfully",
+    )))
 }
-
 /// Verify register user. if the user not verified his email, he can't login to
 /// the system.
 #[debug_handler]
@@ -139,7 +171,9 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
     let mut response = format::json(LoginResponse::new(&user, &token))?;
     response.headers_mut().insert(
         axum::http::header::SET_COOKIE,
-        format!("token={}; HttpOnly; Path=/", token).parse().unwrap(),
+        format!("token={}; HttpOnly; Path=/", token)
+            .parse()
+            .unwrap(),
     );
 
     Ok(response)
